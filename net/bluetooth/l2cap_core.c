@@ -1383,8 +1383,7 @@ static void l2cap_request_info(struct l2cap_conn *conn)
 	conn->info_state |= L2CAP_INFO_FEAT_MASK_REQ_SENT;
 	conn->info_ident = l2cap_get_ident(conn);
 
-	queue_delayed_work(system_power_efficient_wq,
-			&conn->info_timer, L2CAP_INFO_TIMEOUT);
+	schedule_delayed_work(&conn->info_timer, L2CAP_INFO_TIMEOUT);
 
 	l2cap_send_cmd(conn, conn->info_ident, L2CAP_INFO_REQ,
 		       sizeof(req), &req);
@@ -3997,8 +3996,7 @@ sendresp:
 		conn->info_state |= L2CAP_INFO_FEAT_MASK_REQ_SENT;
 		conn->info_ident = l2cap_get_ident(conn);
 
-		queue_delayed_work(system_power_efficient_wq,
-				&conn->info_timer, L2CAP_INFO_TIMEOUT);
+		schedule_delayed_work(&conn->info_timer, L2CAP_INFO_TIMEOUT);
 
 		l2cap_send_cmd(conn, conn->info_ident, L2CAP_INFO_REQ,
 			       sizeof(info), &info);
