@@ -124,7 +124,7 @@ static void cluster_prepare(struct lpm_cluster *cluster,
 		int64_t time);
 
 #ifdef CONFIG_DRM_PANEL
-static bool sleep_disabled = true;
+static bool __read_mostly sleep_disabled = true;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 
 static int lpm_drm_panel_notify(struct notifier_block *nb,
@@ -195,6 +195,9 @@ static int lpm_cpu_qos_notify(struct notifier_block *nb,
 		unsigned long val, void *ptr)
 {
 	int cpu = nb - dev_pm_qos_nb;
+
+	if (sleep_disabled)
+		return NOTIFY_OK;
 
 	preempt_disable();
 	if (cpu != smp_processor_id() && cpu_online(cpu) &&
@@ -709,7 +712,7 @@ static inline bool lpm_disallowed(s64 sleep_us, int cpu, struct lpm_cpu *pm_cpu)
 	if (check_cpu_isolated(cpu))
 		goto out;
 
-	if (sleep_disabled || sleep_us < 0)
+	if (sleep_us < 0)
 		return true;
 
 	bias_time = sched_lpm_disallowed_time(cpu);
@@ -1446,7 +1449,7 @@ static int lpm_cpuidle_select(struct cpuidle_driver *drv,
 {
 	struct lpm_cpu *cpu = per_cpu(cpu_lpm, dev->cpu);
 
-	if (!cpu)
+	if (!cpu || sleep_disabled)
 		return 0;
 
 	return cpu_power_select(dev, cpu);
@@ -1512,6 +1515,14 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	ktime_t start = ktime_get();
 	uint64_t start_time = ktime_to_ns(start), end_time;
 	int ret = -EBUSY;
+
+	if (likely(sleep_disabled)) {
+		if (!need_resched()) {
+			ret = 0;
+			cpu_do_idle();
+		}
+		return ret;
+	}
 
 	/* Read the timer from the CPU that is entering idle */
 	per_cpu(next_hrtimer, dev->cpu) = tick_nohz_get_next_hrtimer();
