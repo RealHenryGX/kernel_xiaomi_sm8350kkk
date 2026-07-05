@@ -333,9 +333,9 @@ struct files_struct *dup_fd(struct files_struct *oldf, struct fd_range *punch_ho
 		if (new_fdt != &newf->fdtab)
 			__free_fdtable(new_fdt);
 
-		new_fdt = alloc_fdtable(open_files);
-		if (IS_ERR(new_fdt)) {
-			*errorp = PTR_ERR(new_fdt);
+		new_fdt = alloc_fdtable(open_files - 1);
+		if (!new_fdt) {
+			error = -ENOMEM;
 			goto out_release;
 		}
 
