@@ -695,7 +695,7 @@
 	nvmem = <&pmk8350_sdam_46>;
 	qcom,pbs-client = <&pm8350b_pbs2>;
 
-	qcom,vmax-mv = <1830>;  /* 9150 / 5 */
+	qcom,vmax-mv = <1300>;
 	qcom,lra-period-us = <5880>;
 	status = "ok";
 
