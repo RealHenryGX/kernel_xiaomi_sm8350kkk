@@ -155,7 +155,7 @@ arch/arm/boot/dts/vendor
 Android.bp
 
 # Ignore build stuff
-Anykernel3/
+AnyKernel3/
 build.sh
 log.txt
 neutron-clang/
