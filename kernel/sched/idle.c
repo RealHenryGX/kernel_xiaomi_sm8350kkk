@@ -19,10 +19,13 @@ extern char __cpuidle_text_start[], __cpuidle_text_end[];
 /**
  * sched_idle_set_state - Record idle state for the current CPU.
  * @idle_state: State to record.
+ * @index: Index of the state within the driver's state table, or -1
+ *         when clearing the idle state (idle_state == NULL).
  */
-void sched_idle_set_state(struct cpuidle_state *idle_state)
+void sched_idle_set_state(struct cpuidle_state *idle_state, int index)
 {
 	idle_set_state(this_rq(), idle_state);
+	idle_set_state_idx(this_rq(), index);
 }
 
 static int __read_mostly cpu_idle_force_poll;
