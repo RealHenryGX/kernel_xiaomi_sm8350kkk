@@ -1746,6 +1746,14 @@ extern unsigned long move_page_tables(struct vm_area_struct *vma,
 extern unsigned long change_protection(struct vm_area_struct *vma, unsigned long start,
 			      unsigned long end, pgprot_t newprot,
 			      int dirty_accountable, int prot_numa);
+
+#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
+extern bool vm_write_begin(struct vm_area_struct *vma);
+extern void vm_write_end(struct vm_area_struct *vma);
+#else
+static inline bool vm_write_begin(struct vm_area_struct *vma) { return true; }
+static inline void vm_write_end(struct vm_area_struct *vma) {}
+#endif
 extern int mprotect_fixup(struct vm_area_struct *vma,
 			  struct vm_area_struct **pprev, unsigned long start,
 			  unsigned long end, unsigned long newflags);

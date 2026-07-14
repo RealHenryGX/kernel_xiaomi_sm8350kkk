@@ -65,7 +65,7 @@ static inline unsigned long get_random_canary(void)
 }
 
 void __init random_init_early(const char *command_line);
-void __init random_init(void);
+int __init random_init(const char *command_line);
 bool rng_is_initialized(void);
 int wait_for_random_bytes(void);
 int register_random_ready_notifier(struct notifier_block *nb);

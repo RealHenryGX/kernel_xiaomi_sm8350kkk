@@ -693,7 +693,7 @@ asmlinkage __visible void __init start_kernel(void)
 	time_init();
 
 	/* This must be after timekeeping is initialized */
-	random_init();
+	random_init(command_line);
 
 	/* These make use of the fully initialized rng */
 	kfence_init();
