@@ -2208,7 +2208,7 @@ static int haptics_init_custom_effect(struct haptics_chip *chip)
 	chip->custom_effect->pattern = NULL;
 	chip->custom_effect->brake = NULL;
 	chip->custom_effect->id = UINT_MAX;
-#ifdef CONFIG_TARGET_PRODUCT_HAYDN)
+#ifdef CONFIG_TARGET_PRODUCT_HAYDN
 	chip->custom_effect->vmax_mv = 8500;
 #endif
 	chip->custom_effect->t_lra_us = chip->config.t_lra_us;
