@@ -1853,8 +1853,12 @@ void __nf_ct_refresh_acct(struct nf_conn *ct,
 /* Refresh the NAT type entry. */
 #if defined(CONFIG_IP_NF_TARGET_NATTYPE_MODULE)
 	nattype_ref_timer = rcu_dereference(nattype_refresh_timer);
-	if (nattype_ref_timer)
-		nattype_ref_timer(ct->nattype_entry, ct->timeout);
+	if (nattype_ref_timer) {
+		if (nf_ct_is_confirmed(ct))
+			nattype_ref_timer(ct->nattype_entry, ct->timeout);
+		else
+			nattype_ref_timer(ct->nattype_entry, extra_jiffies + nfct_time_stamp);
+	}
 #endif
 
 acct:
@@ -2049,6 +2053,9 @@ static int nf_confirm_cthelper(struct sk_buff *skb, struct nf_conn *ct,
 		return 0;
 
 	helper = rcu_dereference(help->helper);
+	if (!helper)
+		return 0;
+
 	if (!(helper->flags & NF_CT_HELPER_F_USERSPACE))
 		return 0;
 
