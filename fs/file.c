@@ -335,7 +335,7 @@ struct files_struct *dup_fd(struct files_struct *oldf, struct fd_range *punch_ho
 
 		new_fdt = alloc_fdtable(open_files);
 		if (IS_ERR(new_fdt)) {
-			error = PTR_ERR(new_fdt);
+			*errorp = PTR_ERR(new_fdt);
 			goto out_release;
 		}
 
