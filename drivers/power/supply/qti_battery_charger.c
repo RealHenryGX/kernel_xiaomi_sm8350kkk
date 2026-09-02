@@ -4006,7 +4006,7 @@ static void generate_xm_charge_uvent(struct work_struct *work)
 	return;
 }
 
-#ifdef DEBUG
+#ifdef CONFIG_DEBUG_KERNEL
 #define CHARGING_PERIOD_S		60
 #define DISCHARGE_PERIOD_S		300
 static void xm_charger_debug_info_print_work(struct work_struct *work)
@@ -4277,7 +4277,7 @@ static int battery_chg_probe(struct platform_device *pdev)
 
 	INIT_DELAYED_WORK( &bcdev->xm_prop_change_work, generate_xm_charge_uvent);
 
-#ifdef DEBUG
+#ifdef CONFIG_DEBUG_KERNEL
 	INIT_DELAYED_WORK( &bcdev->charger_debug_info_print_work, xm_charger_debug_info_print_work);
 	schedule_delayed_work(&bcdev->charger_debug_info_print_work, 5 * HZ);
 #endif
