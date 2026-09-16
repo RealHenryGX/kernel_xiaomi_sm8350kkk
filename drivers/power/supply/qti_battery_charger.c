@@ -2488,7 +2488,7 @@ static ssize_t charging_enabled_show(struct class *c,
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
 }
-static CLASS_ATTR_RW(charging_enabled);
+static __maybe_unused CLASS_ATTR_RW(charging_enabled);
 
 /*
 static struct attribute *battery_class_attrs[] = {
