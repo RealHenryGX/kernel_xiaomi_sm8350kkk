@@ -169,20 +169,3 @@ static inline bool susfs_is_current_proc_umounted_app(void) {
 		unlikely(test_bit(AS_FLAGS_OPEN_REDIRECT, &inode->i_state)) && \
 		susfs_is_current_proc_umounted_app()
 #endif // #ifndef KSU_SUSFS_DEF_H
-
-/* definitions fs/dcache.c and fs/namespace.c rely on, as upstream defines them */
-#ifndef INODE_STATE_SUS_PATH
-#define INODE_STATE_SUS_PATH BIT(24)
-#endif
-#ifndef TASK_STRUCT_NON_ROOT_USER_APP_PROC
-#define TASK_STRUCT_NON_ROOT_USER_APP_PROC BIT(24)
-#endif
-#ifndef DEFAULT_SUS_MNT_ID
-#define DEFAULT_SUS_MNT_ID 100000
-#endif
-#ifndef DEFAULT_SUS_MNT_ID_FOR_KSU_PROC_UNSHARE
-#define DEFAULT_SUS_MNT_ID_FOR_KSU_PROC_UNSHARE 1000000
-#endif
-#ifndef DEFAULT_SUS_MNT_GROUP_ID
-#define DEFAULT_SUS_MNT_GROUP_ID 1000
-#endif
