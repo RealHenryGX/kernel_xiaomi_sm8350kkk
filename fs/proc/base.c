@@ -65,7 +65,6 @@
 #include <linux/namei.h>
 #include <linux/mnt_namespace.h>
 #include <linux/mm.h>
-#include <linux/pgsize_migration.h>
 #include <linux/swap.h>
 #include <linux/rcupdate.h>
 #include <linux/kallsyms.h>
@@ -97,6 +96,9 @@
 #include <linux/sched/stat.h>
 #include <linux/posix-timers.h>
 #include <linux/cpufreq_times.h>
+#if defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)
+#include <linux/susfs_def.h>
+#endif
 #include <trace/events/oom.h>
 #include "internal.h"
 #include "fd.h"
@@ -889,6 +891,9 @@ static ssize_t mem_rw(struct file *file, char __user *buf,
 	ssize_t copied;
 	char *page;
 	unsigned int flags;
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	struct vm_area_struct *vma;
+#endif
 
 	if (!mm)
 		return 0;
@@ -907,6 +912,20 @@ static ssize_t mem_rw(struct file *file, char __user *buf,
 
 	while (count > 0) {
 		size_t this_len = min_t(size_t, count, PAGE_SIZE);
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		vma = find_vma(mm, addr);
+		if (vma && vma->vm_file) {
+			struct inode *inode = file_inode(vma->vm_file);
+			if (SUSFS_IS_INODE_SUS_MAP(inode)) {
+				if (write) {
+					copied = -EFAULT;
+				} else {
+					copied = -EIO;
+				}
+				break;
+			}
+		}
+#endif
 
 		if (write && copy_from_user(page, buf, this_len)) {
 			copied = -EFAULT;
@@ -1787,6 +1806,10 @@ out:
 	return ERR_PTR(error);
 }
 
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+extern int susfs_open_redirect_spoof_do_proc_readlink(struct inode *inode, char *tmp_buf, int buflen);
+#endif
+
 static int do_proc_readlink(struct path *path, char __user *buffer, int buflen)
 {
 	char *tmp = (char *)__get_free_page(GFP_KERNEL);
@@ -1795,6 +1818,17 @@ static int do_proc_readlink(struct path *path, char __user *buffer, int buflen)
 
 	if (!tmp)
 		return -ENOMEM;
+
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	if (SUSFS_IS_INODE_OPEN_REDIRECT(path->dentry->d_inode)) {
+		if (!susfs_open_redirect_spoof_do_proc_readlink(path->dentry->d_inode, tmp, buflen)) {
+			len = strlen(tmp);
+			if (copy_to_user(buffer, tmp, len))
+				len = -EFAULT;
+			goto out;
+		}
+	}
+#endif
 
 	pathname = d_path(path, tmp, PAGE_SIZE);
 	len = PTR_ERR(pathname);
@@ -2134,11 +2168,11 @@ static int map_files_d_revalidate(struct dentry *dentry, unsigned int flags)
 		goto out;
 
 	if (!dname_to_vma_addr(dentry, &vm_start, &vm_end)) {
-		status = down_read_killable(&mm->mmap_sem);
+		status = mmap_read_lock_killable(mm);
 		if (!status) {
 			exact_vma_exists = !!find_exact_vma(mm, vm_start,
 							    vm_end);
-			up_read(&mm->mmap_sem);
+			mmap_read_unlock(mm);
 		}
 	}
 
@@ -2185,7 +2219,7 @@ static int map_files_get_link(struct dentry *dentry, struct path *path)
 	if (rc)
 		goto out_mmput;
 
-	rc = down_read_killable(&mm->mmap_sem);
+	rc = mmap_read_lock_killable(mm);
 	if (rc)
 		goto out_mmput;
 
@@ -2196,7 +2230,7 @@ static int map_files_get_link(struct dentry *dentry, struct path *path)
 		path_get(path);
 		rc = 0;
 	}
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 
 out_mmput:
 	mmput(mm);
@@ -2211,16 +2245,16 @@ struct map_files_info {
 };
 
 /*
- * Only allow CAP_SYS_ADMIN and CAP_CHECKPOINT_RESTORE to follow the links, due
- * to concerns about how the symlinks may be used to bypass permissions on
- * ancestor directories in the path to the file in question.
+ * Only allow CAP_SYS_ADMIN to follow the links, due to concerns about how the
+ * symlinks may be used to bypass permissions on ancestor directories in the
+ * path to the file in question.
  */
 static const char *
 proc_map_files_get_link(struct dentry *dentry,
 			struct inode *inode,
 		        struct delayed_call *done)
 {
-	if (!checkpoint_restore_ns_capable(&init_user_ns))
+	if (!capable(CAP_SYS_ADMIN))
 		return ERR_PTR(-EPERM);
 
 	return proc_pid_get_link(dentry, inode, done);
@@ -2286,7 +2320,7 @@ static struct dentry *proc_map_files_lookup(struct inode *dir,
 		goto out_put_task;
 
 	result = ERR_PTR(-EINTR);
-	if (down_read_killable(&mm->mmap_sem))
+	if (mmap_read_lock_killable(mm))
 		goto out_put_mm;
 
 	result = ERR_PTR(-ENOENT);
@@ -2299,7 +2333,7 @@ static struct dentry *proc_map_files_lookup(struct inode *dir,
 				(void *)(unsigned long)vma->vm_file->f_mode);
 
 out_no_vma:
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 out_put_mm:
 	mmput(mm);
 out_put_task:
@@ -2324,6 +2358,9 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 	GENRADIX(struct map_files_info) fa;
 	struct map_files_info *p;
 	int ret;
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	struct inode *inode;
+#endif
 
 	genradix_init(&fa);
 
@@ -2344,7 +2381,7 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 	if (!mm)
 		goto out_put_task;
 
-	ret = down_read_killable(&mm->mmap_sem);
+	ret = mmap_read_lock_killable(mm);
 	if (ret) {
 		mmput(mm);
 		goto out_put_task;
@@ -2365,22 +2402,27 @@ proc_map_files_readdir(struct file *file, struct dir_context *ctx)
 	for (vma = mm->mmap, pos = 2; vma; vma = vma->vm_next) {
 		if (!vma->vm_file)
 			continue;
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		inode = file_inode(vma->vm_file);
+		if (SUSFS_IS_INODE_SUS_MAP(inode))
+			continue;
+#endif
 		if (++pos <= ctx->pos)
 			continue;
 
 		p = genradix_ptr_alloc(&fa, nr_files++, GFP_KERNEL);
 		if (!p) {
 			ret = -ENOMEM;
-			up_read(&mm->mmap_sem);
+			mmap_read_unlock(mm);
 			mmput(mm);
 			goto out_put_task;
 		}
 
 		p->start = vma->vm_start;
-		p->end = VMA_PAD_START(vma);
+		p->end = vma->vm_end;
 		p->mode = vma->vm_file->f_mode;
 	}
-	up_read(&mm->mmap_sem);
+	mmap_read_unlock(mm);
 	mmput(mm);
 
 	for (i = 0; i < nr_files; i++) {
