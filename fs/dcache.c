@@ -32,9 +32,6 @@
 #include <linux/bit_spinlock.h>
 #include <linux/rculist_bl.h>
 #include <linux/list_lru.h>
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-#include <linux/susfs_def.h>
-#endif
 #include "internal.h"
 #include "mount.h"
 
@@ -168,7 +165,7 @@ static long get_nr_dentry_negative(void)
 	return sum < 0 ? 0 : sum;
 }
 
-int proc_nr_dentry(struct ctl_table *table, int write, void *buffer,
+int proc_nr_dentry(struct ctl_table *table, int write, void __user *buffer,
 		   size_t *lenp, loff_t *ppos)
 {
 	dentry_stat.nr_dentry = get_nr_dentry();
@@ -1329,7 +1326,7 @@ resume:
 
 		if (!list_empty(&dentry->d_subdirs)) {
 			spin_unlock(&this_parent->d_lock);
-			spin_release(&dentry->d_lock.dep_map, 1, _RET_IP_);
+			spin_release(&dentry->d_lock.dep_map, _RET_IP_);
 			this_parent = dentry;
 			spin_acquire(&this_parent->d_lock.dep_map, 0, 1, _RET_IP_);
 			goto repeat;
@@ -1735,7 +1732,7 @@ struct dentry *__d_alloc(struct super_block *sb, const struct qstr *name)
 	dentry->d_lockref.count = 1;
 	dentry->d_flags = 0;
 	spin_lock_init(&dentry->d_lock);
-	seqcount_init(&dentry->d_seq);
+	seqcount_spinlock_init(&dentry->d_seq, &dentry->d_lock);
 	dentry->d_inode = NULL;
 	dentry->d_parent = dentry;
 	dentry->d_sb = sb;
@@ -2300,11 +2297,6 @@ seqretry:
 				continue;
 			if (dentry_cmp(dentry, str, hashlen_len(hashlen)) != 0)
 				continue;
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-			if (dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {
-				continue;
-			}
-#endif
 		}
 		*seqp = seq;
 		return dentry;
@@ -2387,12 +2379,6 @@ struct dentry *__d_lookup(const struct dentry *parent, const struct qstr *name)
 
 		if (dentry->d_name.hash != hash)
 			continue;
-
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		if (dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {
-			continue;
-		}
-#endif
 
 		spin_lock(&dentry->d_lock);
 		if (dentry->d_parent != parent)
