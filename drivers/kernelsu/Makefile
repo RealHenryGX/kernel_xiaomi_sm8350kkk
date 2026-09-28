@@ -16,18 +16,14 @@ ccflags-y += -I$(objtree)/security/selinux -include $(srctree)/include/uapi/asm-
 
 obj-$(CONFIG_KSU) += kernelsu.o
 
-# .git is a text file while the module is imported by 'git submodule add'.
-ifeq ($(shell test -e $(srctree)/$(src)/../.git; echo $$?),0)
-$(shell cd $(srctree)/$(src); /usr/bin/env PATH="$$PATH":/usr/bin:/usr/local/bin [ -f ../.git/shallow ] && git fetch --unshallow)
-KSU_GIT_VERSION := 1728   # 写死：v1.0.1 的提交数 ⇒ 10000+1728+200 = 11928，与官方 v1.0.1 管理器一致
-# ksu_version: major * 10000 + git version + 200 for historical reasons
-$(eval KSU_VERSION=$(shell expr 10000 + $(KSU_GIT_VERSION) + 200))
+# Version is pinned, not derived from git: the upstream rule counts commits with
+# `git rev-list --count HEAD` and silently falls back to the literal 16 when there
+# is no .git to read, which is how the manager ended up reporting 16.  It also
+# ran a `git fetch --unshallow` at build time; neither belongs in a build.
+# 10000 + 1728 + 200 = 11928 == the official KernelSU v1.0.1 manager.
+KSU_VERSION := 11928
 $(info -- KernelSU version: $(KSU_VERSION))
 ccflags-y += -DKSU_VERSION=$(KSU_VERSION)
-else # If there is no .git file, the default version will be passed.
-$(warning "KSU_GIT_VERSION not defined! It is better to make KernelSU a git submodule!")
-ccflags-y += -DKSU_VERSION=16
-endif
 
 ifndef KSU_EXPECTED_SIZE
 KSU_EXPECTED_SIZE := 0x033b
