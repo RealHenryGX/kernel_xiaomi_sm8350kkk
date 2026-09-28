@@ -9,7 +9,11 @@
 #include "linux/lsm_audit.h"
 #include "xfrm.h"
 
+/* selinux_policy was split out of selinux_ss in 5.7; before that the policy
+ * database lives at selinux_state.ss->policydb.  Same shape ReSukiSU uses. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 #define SELINUX_POLICY_INSTEAD_SELINUX_SS
+#endif
 
 #define KERNEL_SU_DOMAIN "su"
 #define KERNEL_SU_FILE "ksu_file"
@@ -18,10 +22,13 @@
 
 static struct policydb *get_policydb(void)
 {
-	struct policydb *db;
+#ifdef SELINUX_POLICY_INSTEAD_SELINUX_SS
 	struct selinux_policy *policy = rcu_dereference(selinux_state.policy);
-	db = &policy->policydb;
-	return db;
+	return &policy->policydb;
+#else
+	struct selinux_ss *ss = selinux_state.ss;
+	return &ss->policydb;
+#endif
 }
 
 void ksu_apply_kernelsu_rules()
