@@ -31,7 +31,6 @@
 #include <linux/task_io_accounting.h>
 #include <linux/posix-timers.h>
 #include <linux/rseq.h>
-#include <linux/kcsan.h>
 #include <linux/android_kabi.h>
 #include <linux/android_vendor.h>
 
@@ -780,7 +779,7 @@ union rcu_special {
 		u8			blocked;
 		u8			need_qs;
 		u8			exp_hint; /* Hint for performance. */
-		u8			need_mb; /* Readers need smp_mb(). */
+		u8			deferred_qs;
 	} b; /* Bits. */
 	u32 s; /* Set of bits. */
 };
@@ -899,10 +898,9 @@ struct task_struct {
 #ifdef CONFIG_TASKS_TRACE_RCU
 	int				trc_reader_nesting;
 	int				trc_ipi_to_cpu;
-	union rcu_special		trc_reader_special;
+	bool				trc_reader_need_end;
+	bool				trc_reader_checked;
 	struct list_head		trc_holdout_list;
-	struct list_head		trc_blkd_node;
-	int				trc_blkd_cpu;
 #endif /* #ifdef CONFIG_TASKS_TRACE_RCU */
 
 	struct sched_info		sched_info;
@@ -955,10 +953,6 @@ struct task_struct {
 #endif
 #ifdef CONFIG_MEMCG
 	unsigned			in_user_fault:1;
-#endif
-#ifdef CONFIG_LRU_GEN
-	/* whether the LRU algorithm may apply to this access */
-	unsigned			in_lru_fault:1;
 #endif
 #ifdef CONFIG_COMPAT_BRK
 	unsigned			brk_randomized:1;
@@ -1164,7 +1158,6 @@ struct task_struct {
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned int			irq_events;
-	unsigned int			hardirq_threaded;
 	unsigned long			hardirq_enable_ip;
 	unsigned long			hardirq_disable_ip;
 	unsigned int			hardirq_enable_event;
@@ -1177,7 +1170,6 @@ struct task_struct {
 	unsigned int			softirq_enable_event;
 	int				softirqs_enabled;
 	int				softirq_context;
-	int				irq_config;
 #endif
 
 #ifdef CONFIG_LOCKDEP
@@ -1234,7 +1226,7 @@ struct task_struct {
 	/* Protected by ->alloc_lock: */
 	nodemask_t			mems_allowed;
 	/* Seqence number to catch updates: */
-	seqcount_spinlock_t		mems_allowed_seq;
+	seqcount_t			mems_allowed_seq;
 	int				cpuset_mem_spread_rotor;
 	int				cpuset_slab_spread_rotor;
 #endif
@@ -1375,9 +1367,6 @@ struct task_struct {
 #ifdef CONFIG_KASAN
 	unsigned int			kasan_depth;
 #endif
-#ifdef CONFIG_KCSAN
-	struct kcsan_ctx		kcsan_ctx;
-#endif
 
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
 	/* Index of current stored address in ret_stack: */
@@ -1474,6 +1463,9 @@ struct task_struct {
 	/* Used by LSM modules for access restriction: */
 	void				*security;
 #endif
+#ifdef CONFIG_ANDROID_SIMPLE_LMK
+	struct task_struct		*simple_lmk_next;
+#endif
 
 #ifdef CONFIG_GCC_PLUGIN_STACKLEAK
 	unsigned long			lowest_stack;
@@ -1488,14 +1480,16 @@ struct task_struct {
 	ANDROID_KABI_RESERVE(4);
 	ANDROID_KABI_RESERVE(5);
 	ANDROID_KABI_RESERVE(6);
+#ifdef CONFIG_KSU_SUSFS
+	ANDROID_KABI_USE(7, u64 susfs_task_state);
+#else
 	ANDROID_KABI_RESERVE(7);
+#endif
+#ifdef CONFIG_KSU_SUSFS
+	ANDROID_KABI_USE(8, u64 susfs_last_fake_mnt_id);
+#else
 	ANDROID_KABI_RESERVE(8);
-
-	/*
-	 * User pointer to hwui DrawFrameTask::mFrameInfo.
-	 * (used by hwui monitor)
-	 */
-	s64 __user *ui_frame_info;
+#endif
 
 	/*
 	 * New fields for task_struct should be added above here, so that
@@ -1839,9 +1833,6 @@ extern int idle_cpu(int cpu);
 extern int available_idle_cpu(int cpu);
 extern int sched_setscheduler(struct task_struct *, int, const struct sched_param *);
 extern int sched_setscheduler_nocheck(struct task_struct *, int, const struct sched_param *);
-extern void sched_set_fifo(struct task_struct *p);
-extern void sched_set_fifo_low(struct task_struct *p);
-extern void sched_set_normal(struct task_struct *p, int nice);
 extern int sched_setattr(struct task_struct *, const struct sched_attr *);
 extern int sched_setattr_nocheck(struct task_struct *, const struct sched_attr *);
 extern struct task_struct *idle_task(int cpu);
@@ -2023,47 +2014,6 @@ static inline void cond_resched_rcu(void)
 #endif
 }
 
-#ifdef CONFIG_PREEMPT_DYNAMIC
-
-extern bool preempt_model_none(void);
-extern bool preempt_model_voluntary(void);
-extern bool preempt_model_full(void);
-
-#else
-
-static inline bool preempt_model_none(void)
-{
-	return IS_ENABLED(CONFIG_PREEMPT_NONE);
-}
-static inline bool preempt_model_voluntary(void)
-{
-	return IS_ENABLED(CONFIG_PREEMPT_VOLUNTARY);
-}
-static inline bool preempt_model_full(void)
-{
-	return IS_ENABLED(CONFIG_PREEMPT);
-}
-
-#endif
-
-static inline bool preempt_model_rt(void)
-{
-	return IS_ENABLED(CONFIG_PREEMPT_RT);
-}
-
-/*
- * Does the preemption model allow non-cooperative preemption?
- *
- * For !CONFIG_PREEMPT_DYNAMIC kernels this is an exact match with
- * CONFIG_PREEMPTION; for CONFIG_PREEMPT_DYNAMIC this doesn't work as the
- * kernel is *built* with CONFIG_PREEMPTION=y but may run with e.g. the
- * PREEMPT_NONE model.
- */
-static inline bool preempt_model_preemptible(void)
-{
-	return preempt_model_full() || preempt_model_rt();
-}
-
 /*
  * Does a critical section need to be broken due to another
  * task waiting?: (technically does not depend on CONFIG_PREEMPTION,
@@ -2111,8 +2061,6 @@ static inline void set_task_cpu(struct task_struct *p, unsigned int cpu)
 }
 
 #endif /* CONFIG_SMP */
-
-extern struct task_struct *cpu_curr_snapshot(int cpu);
 
 /*
  * In order to reduce various lock holder preemption latencies provide an
@@ -2243,14 +2191,6 @@ static inline void rseq_execve(struct task_struct *t)
 }
 
 #endif
-
-void __exit_umh(struct task_struct *tsk);
-
-static inline void exit_umh(struct task_struct *tsk)
-{
-	if (unlikely(tsk->flags & PF_UMH))
-		__exit_umh(tsk);
-}
 
 #ifdef CONFIG_DEBUG_RSEQ
 
